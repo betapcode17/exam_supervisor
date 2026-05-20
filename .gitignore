@@ -56,4 +56,5 @@ config.properties
 
 uploads/
 
-ouput/
+output/
+src/**/*.class
