@@ -5,6 +5,8 @@ import java.awt.Color;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridLayout;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.File;
 import java.util.List;
 
@@ -23,6 +25,9 @@ import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
+import javax.swing.UIManager;
+import javax.swing.border.LineBorder;
+import javax.swing.border.TitledBorder;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.DefaultTableModel;
 
@@ -30,6 +35,15 @@ import network.TCPClient;
 import util.ExcelReader;
 
 public class ClientGUI extends JFrame {
+    // Accessible color palette (high contrast)
+    private static final Color COLOR_BG = new Color(250, 250, 250);
+    private static final Color COLOR_PANEL = new Color(245, 245, 245);
+    private static final Color COLOR_PRIMARY = new Color(0, 102, 204); // primary buttons / headers
+    private static final Color COLOR_ACCENT = new Color(0, 153, 51);  // success / accent
+    private static final Color COLOR_ERROR = new Color(220, 53, 69);   // error / danger
+    private static final Color COLOR_TEXT = new Color(33, 33, 33);     // primary text (dark)
+    private static final Color COLOR_MUTED = new Color(117, 117, 117);
+    private static final Color COLOR_BORDER = new Color(200, 200, 200);
     private JTextField serverUrlField;
     private JTextField serverPortField;
     private JButton connectButton;
@@ -83,6 +97,8 @@ public class ClientGUI extends JFrame {
     }
 
     private void initComponents() {
+        applyModernTheme();
+
         JPanel mainPanel = new JPanel(new BorderLayout(10, 10));
         mainPanel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
         
@@ -111,23 +127,35 @@ public class ClientGUI extends JFrame {
     }
 
     private JPanel createConnectionPanel() {
-        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
-        panel.setBorder(BorderFactory.createTitledBorder("Kết nối Server"));
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 8));
+        TitledBorder tb = BorderFactory.createTitledBorder("Kết nối Server");
+        tb.setTitleFont(new java.awt.Font("Segoe UI", java.awt.Font.PLAIN, 13));
+        tb.setTitleColor(COLOR_TEXT);
+        panel.setBorder(BorderFactory.createCompoundBorder(new LineBorder(COLOR_BORDER), tb));
+        panel.setBackground(COLOR_BG);
         
-        panel.add(new JLabel("URL Server:"));
+        JLabel urlLbl = new JLabel("URL Server:");
+        urlLbl.setForeground(COLOR_TEXT);
+        panel.add(urlLbl);
         serverUrlField = new JTextField("localhost", 12);
+        serverUrlField.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         panel.add(serverUrlField);
         
-        panel.add(new JLabel("Port:"));
+        JLabel portLbl = new JLabel("Port:");
+        portLbl.setForeground(COLOR_TEXT);
+        panel.add(portLbl);
         serverPortField = new JTextField("8888", 8);
+        serverPortField.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         panel.add(serverPortField);
         
         connectButton = new JButton("Kết nối");
         connectButton.addActionListener(e -> connectToServer());
+        styleButton(connectButton, COLOR_PRIMARY);
         panel.add(connectButton);
         
         connectionStatusLabel = new JLabel("Chưa kết nối");
-        connectionStatusLabel.setForeground(Color.RED);
+        connectionStatusLabel.setForeground(COLOR_MUTED);
+        connectionStatusLabel.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         panel.add(connectionStatusLabel);
         
         return panel;
@@ -135,14 +163,23 @@ public class ClientGUI extends JFrame {
 
     private JPanel createInputPanel() {
         JPanel panel = new JPanel(new GridLayout(4, 1, 10, 10));
-        panel.setBorder(BorderFactory.createTitledBorder("Nhập thông tin"));
+        TitledBorder tb = BorderFactory.createTitledBorder("Nhập thông tin");
+        tb.setTitleFont(new java.awt.Font("Segoe UI", java.awt.Font.PLAIN, 13));
+        tb.setTitleColor(COLOR_TEXT);
+        panel.setBorder(BorderFactory.createCompoundBorder(new LineBorder(COLOR_BORDER), tb));
+        panel.setBackground(COLOR_BG);
         
         // File selection panel
-        JPanel filePanel = new JPanel(new BorderLayout(5, 5));
-        filePanel.add(new JLabel("Chọn file Excel:"), BorderLayout.WEST);
+        JPanel filePanel = new JPanel(new BorderLayout(6, 6));
+        filePanel.setBackground(COLOR_BG);
+        JLabel fileLbl = new JLabel("Chọn file Excel:");
+        fileLbl.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        fileLbl.setForeground(COLOR_TEXT);
+        filePanel.add(fileLbl, BorderLayout.WEST);
         
         JPanel fileBtnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         filePathField = new JTextField(20);
+        filePathField.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         filePathField.setEditable(false);
         selectFileButton = new JButton("Chọn file");
         selectFileButton.addActionListener(e -> selectFile());
@@ -151,7 +188,9 @@ public class ClientGUI extends JFrame {
         sendFileButton = new JButton("Gửi file");
         sendFileButton.addActionListener(e -> uploadFile());
         sendFileButton.setEnabled(false);
-        
+        styleButton(selectFileButton, COLOR_ACCENT);
+        styleButton(sendFileButton, COLOR_PRIMARY);
+
         fileBtnPanel.add(filePathField);
         fileBtnPanel.add(selectFileButton);
         fileBtnPanel.add(sendFileButton);
@@ -160,25 +199,37 @@ public class ClientGUI extends JFrame {
         
         // Number of rooms
         JPanel roomsPanel = new JPanel(new BorderLayout(5, 5));
-        roomsPanel.add(new JLabel("Số phòng cần sử dụng (n):"), BorderLayout.WEST);
+        JLabel roomsLbl = new JLabel("Số phòng cần sử dụng (n):");
+        roomsLbl.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        roomsLbl.setForeground(COLOR_TEXT);
+        roomsPanel.add(roomsLbl, BorderLayout.WEST);
         numberOfRoomsField = new JTextField("10", 15);
+        numberOfRoomsField.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         numberOfRoomsField.setEnabled(false);
         roomsPanel.add(numberOfRoomsField, BorderLayout.CENTER);
         panel.add(roomsPanel);
         
         // Number of invigilators
         JPanel invigilatorPanel = new JPanel(new BorderLayout(5, 5));
-        invigilatorPanel.add(new JLabel("Số cán bộ cần sử dụng (m):"), BorderLayout.WEST);
+        JLabel invLbl = new JLabel("Số cán bộ cần sử dụng (m):");
+        invLbl.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        invLbl.setForeground(COLOR_TEXT);
+        invigilatorPanel.add(invLbl, BorderLayout.WEST);
         numberOfInvigilatorsField = new JTextField("20", 15);
+        numberOfInvigilatorsField.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         numberOfInvigilatorsField.setEnabled(false);
         invigilatorPanel.add(numberOfInvigilatorsField, BorderLayout.CENTER);
         panel.add(invigilatorPanel);
         
         // Progress bar
         JPanel progressPanel = new JPanel(new BorderLayout(5, 5));
-        progressPanel.add(new JLabel("Tiến độ:"), BorderLayout.WEST);
+        JLabel pLbl = new JLabel("Tiến độ:");
+        pLbl.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        pLbl.setForeground(COLOR_TEXT);
+        progressPanel.add(pLbl, BorderLayout.WEST);
         progressBar = new JProgressBar(0, 100);
         progressBar.setStringPainted(true);
+        progressBar.setForeground(COLOR_PRIMARY);
         progressPanel.add(progressBar, BorderLayout.CENTER);
         panel.add(progressPanel);
         
@@ -187,11 +238,17 @@ public class ClientGUI extends JFrame {
 
     private JPanel createResultPanel() {
         JPanel panel = new JPanel(new BorderLayout());
-        panel.setBorder(BorderFactory.createTitledBorder("Kết quả & Log"));
+        TitledBorder tb = BorderFactory.createTitledBorder("Kết quả & Log");
+        tb.setTitleFont(new java.awt.Font("Segoe UI", java.awt.Font.PLAIN, 13));
+        tb.setTitleColor(COLOR_TEXT);
+        panel.setBorder(BorderFactory.createCompoundBorder(new LineBorder(COLOR_BORDER), tb));
+        panel.setBackground(COLOR_PANEL);
         
         resultArea = new JTextArea();
         resultArea.setEditable(false);
-        resultArea.setFont(new Font("Courier New", Font.PLAIN, 11));
+        resultArea.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        resultArea.setForeground(COLOR_TEXT);
+        resultArea.setBackground(Color.WHITE);
         
         tabbedPane = new JTabbedPane();
 
@@ -203,11 +260,24 @@ public class ClientGUI extends JFrame {
         inputSheet1Table = new JTable();
         resultSheet0Table = new JTable();
         resultSheet1Table = new JTable();
-        Font tableFont = new Font("Courier New", Font.PLAIN, 11);
+        Font tableFont = new Font("Segoe UI", Font.PLAIN, 13);
         inputSheet0Table.setFont(tableFont);
         inputSheet1Table.setFont(tableFont);
         resultSheet0Table.setFont(tableFont);
         resultSheet1Table.setFont(tableFont);
+        inputSheet0Table.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 13));
+        inputSheet1Table.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 13));
+        resultSheet0Table.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 13));
+        resultSheet1Table.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 13));
+        // header contrast
+        inputSheet0Table.getTableHeader().setBackground(COLOR_PRIMARY);
+        inputSheet0Table.getTableHeader().setForeground(Color.WHITE);
+        inputSheet1Table.getTableHeader().setBackground(COLOR_PRIMARY);
+        inputSheet1Table.getTableHeader().setForeground(Color.WHITE);
+        resultSheet0Table.getTableHeader().setBackground(COLOR_PRIMARY);
+        resultSheet0Table.getTableHeader().setForeground(Color.WHITE);
+        resultSheet1Table.getTableHeader().setBackground(COLOR_PRIMARY);
+        resultSheet1Table.getTableHeader().setForeground(Color.WHITE);
         inputSheet0Table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         inputSheet1Table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         resultSheet0Table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
@@ -217,11 +287,14 @@ public class ClientGUI extends JFrame {
         tabbedPane.addTab("Danh sách phòng thi", new JScrollPane(inputSheet1Table));
         // Create panels for result tables with pagination controls
         JPanel result0Panel = new JPanel(new BorderLayout());
+        result0Panel.setBackground(COLOR_PANEL);
         JScrollPane res0Scroll = new JScrollPane(resultSheet0Table);
         result0Panel.add(res0Scroll, BorderLayout.CENTER);
         JPanel res0Nav = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
         prevResult0Btn = new JButton("⟨ Trước");
         nextResult0Btn = new JButton("Sau ⟩");
+        styleButton(prevResult0Btn, COLOR_MUTED);
+        styleButton(nextResult0Btn, COLOR_MUTED);
         result0PageLabel = new JLabel("Trang 0/0");
         prevResult0Btn.addActionListener(e -> {
             if (result0PageIndex > 0) {
@@ -239,11 +312,14 @@ public class ClientGUI extends JFrame {
         result0Panel.add(res0Nav, BorderLayout.SOUTH);
 
         JPanel result1Panel = new JPanel(new BorderLayout());
+        result1Panel.setBackground(COLOR_PANEL);
         JScrollPane res1Scroll = new JScrollPane(resultSheet1Table);
         result1Panel.add(res1Scroll, BorderLayout.CENTER);
         JPanel res1Nav = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
         prevResult1Btn = new JButton("⟨ Trước");
         nextResult1Btn = new JButton("Sau ⟩");
+        styleButton(prevResult1Btn, COLOR_MUTED);
+        styleButton(nextResult1Btn, COLOR_MUTED);
         result1PageLabel = new JLabel("Trang 0/0");
         prevResult1Btn.addActionListener(e -> {
             if (result1PageIndex > 0) { result1PageIndex--; showResult1Page(); }
@@ -266,16 +342,20 @@ public class ClientGUI extends JFrame {
 
     private JPanel createButtonPanel() {
         JPanel panel = new JPanel(new GridLayout(1, 3, 10, 0));
-        
+        panel.setBackground(COLOR_BG);
+
         generateButton = new JButton("Phân công");
         generateButton.setEnabled(false);
         generateButton.addActionListener(e -> generateAssignment());
-        
+        styleButton(generateButton, COLOR_PRIMARY);
+
         exportButton = new JButton("Xuất kết quả");
         exportButton.setEnabled(false);
         exportButton.addActionListener(e -> exportResult());
-        
+        styleButton(exportButton, COLOR_ACCENT);
+
         JButton exitButton = new JButton("Thoát");
+        styleButton(exitButton, COLOR_MUTED);
         exitButton.addActionListener(e -> System.exit(0));
         
         panel.add(generateButton);
@@ -283,6 +363,39 @@ public class ClientGUI extends JFrame {
         panel.add(exitButton);
         
         return panel;
+    }
+
+    // Apply a few lightweight UI defaults for a cleaner, modern look
+    private void applyModernTheme() {
+        Font uiFont = new Font("Segoe UI", Font.PLAIN, 13);
+        UIManager.put("Label.font", uiFont);
+        UIManager.put("Label.foreground", COLOR_TEXT);
+        UIManager.put("Button.font", uiFont);
+        UIManager.put("TextField.font", uiFont);
+        UIManager.put("TextArea.font", uiFont);
+        UIManager.put("Table.font", uiFont);
+        UIManager.put("TableHeader.font", new Font("Segoe UI", Font.BOLD, 13));
+        UIManager.put("Panel.background", COLOR_BG);
+    }
+
+    private void styleButton(JButton b, Color bg) {
+        b.setFocusPainted(false);
+        b.setBackground(bg);
+        b.setForeground(Color.WHITE);
+        b.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
+        // hover effect
+        final Color base = bg;
+        b.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                if (b.isEnabled()) b.setBackground(base.darker());
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                if (b.isEnabled()) b.setBackground(base);
+            }
+        });
     }
 
     private void connectToServer() {
@@ -310,7 +423,7 @@ public class ClientGUI extends JFrame {
             currentShift = 0;
             
             connectionStatusLabel.setText("Đã kết nối");
-            connectionStatusLabel.setForeground(Color.GREEN);
+            connectionStatusLabel.setForeground(COLOR_ACCENT);
             connectButton.setText("Ngắt kết nối");
             
             serverUrlField.setEditable(false);
@@ -340,7 +453,7 @@ public class ClientGUI extends JFrame {
         currentShift = 0;
         
         connectionStatusLabel.setText("Chưa kết nối");
-        connectionStatusLabel.setForeground(Color.RED);
+        connectionStatusLabel.setForeground(COLOR_ERROR);
         connectButton.setText("Kết nối");
         
         serverUrlField.setEditable(true);
