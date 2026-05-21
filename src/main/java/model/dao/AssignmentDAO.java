@@ -58,6 +58,64 @@ public class AssignmentDAO {
         }
     }
 
+    public void insertBatch(List<Assignment> assignments) throws SQLException {
+        if (assignments == null || assignments.isEmpty()) return;
+        Connection conn = DatabaseConnection.getInstance().getConnection();
+        String sql = INSERT_SQL;
+        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            conn.setAutoCommit(false);
+            // simple caches
+            java.util.Map<String, Integer> maToTt = new java.util.HashMap<>();
+            java.util.Map<String, Integer> roomToStt = new java.util.HashMap<>();
+
+            for (Assignment assignment : assignments) {
+                pstmt.setInt(1, assignment.getShift());
+
+                String roomCode = assignment.getPhongThi();
+                Integer roomStt = roomToStt.get(roomCode);
+                if (roomStt == null) {
+                    RoomDAO roomDAO = new RoomDAO();
+                    Room r = roomDAO.findByPhongThi(roomCode);
+                    if (r == null) {
+                        conn.rollback();
+                        throw new SQLException("Không tìm thấy phòng thi: " + roomCode);
+                    }
+                    roomStt = r.getStt();
+                    roomToStt.put(roomCode, roomStt);
+                }
+
+                String ma1 = assignment.getMaGV1();
+                Integer tt1 = maToTt.get(ma1);
+                if (tt1 == null) {
+                    InvigilatorDAO invDAO = new InvigilatorDAO();
+                    Invigilator inv1 = invDAO.findByMaGV(ma1);
+                    if (inv1 == null) { conn.rollback(); throw new SQLException("Không tìm thấy cán bộ: " + ma1); }
+                    tt1 = inv1.getTt();
+                    maToTt.put(ma1, tt1);
+                }
+
+                String ma2 = assignment.getMaGV2();
+                Integer tt2 = maToTt.get(ma2);
+                if (tt2 == null) {
+                    InvigilatorDAO invDAO = new InvigilatorDAO();
+                    Invigilator inv2 = invDAO.findByMaGV(ma2);
+                    if (inv2 == null) { conn.rollback(); throw new SQLException("Không tìm thấy cán bộ: " + ma2); }
+                    tt2 = inv2.getTt();
+                    maToTt.put(ma2, tt2);
+                }
+
+                pstmt.setInt(2, roomStt);
+                pstmt.setInt(3, tt1);
+                pstmt.setInt(4, tt2);
+                pstmt.addBatch();
+            }
+            pstmt.executeBatch();
+            conn.commit();
+        } finally {
+            DatabaseConnection.closeConnection(conn);
+        }
+    }
+
     public void update(Assignment assignment) throws SQLException {
         Connection conn = DatabaseConnection.getInstance().getConnection();
         try (PreparedStatement pstmt = conn.prepareStatement(UPDATE_SQL)) {

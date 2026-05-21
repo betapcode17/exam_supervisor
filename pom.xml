@@ -14,8 +14,8 @@
     <description>System for automatic exam supervisor assignment</description>
 
     <properties>
-        <maven.compiler.source>8</maven.compiler.source>
-        <maven.compiler.target>8</maven.compiler.target>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
@@ -55,6 +55,12 @@
             <artifactId>logback-classic</artifactId>
             <version>1.4.11</version>
         </dependency>
+        <!-- Add log4j-core to satisfy libraries that rely on Log4j2 implementation discovery -->
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <version>2.20.0</version>
+        </dependency>
 
         <!-- JUnit for testing -->
         <dependency>
@@ -72,8 +78,8 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.11.0</version>
                 <configuration>
-                    <source>8</source>
-                    <target>8</target>
+                    <!-- Use release to ensure cross-compilation compatibility -->
+                    <release>21</release>
                     <encoding>UTF-8</encoding>
                 </configuration>
             </plugin>
