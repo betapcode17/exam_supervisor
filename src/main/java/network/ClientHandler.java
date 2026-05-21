@@ -9,6 +9,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.Socket;
 import java.net.SocketException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -855,30 +857,66 @@ public class ClientHandler implements Runnable {
         }
 
         private void sendFileToClient(File file) throws IOException {
-                dos.writeUTF(file.getName());
-                dos.writeLong(file.length());
-                dos.flush();
+                                byte[] payload = readCompleteFileSnapshot(file);
+                                long fileSize = payload.length;
 
-                System.out.println("[SEND-FILE] Sending: " + file.getName() + " (" + file.length() + " bytes)");
-                
-                try (FileInputStream fis = new FileInputStream(file)) {
-                        byte[] buffer = new byte[8192];
-                        int read;
-                        long totalSent = 0;
+                                dos.writeUTF(file.getName());
+                                dos.writeLong(fileSize);
+                                dos.flush();
 
-                        while ((read = fis.read(buffer)) > 0) {
-                                dos.write(buffer, 0, read);
-                                totalSent += read;
+                                System.out.println("[SEND-FILE] Sending: " + file.getName() + " (" + fileSize + " bytes)");
+
+                                dos.write(payload);
+                                dos.flush();
+
+                                System.out.println("[SEND-FILE] Sent " + fileSize + " bytes for " + file.getName());
+    }
+
+        private byte[] readCompleteFileSnapshot(File file) throws IOException {
+                Path path = file.toPath();
+                IOException lastError = null;
+
+                for (int attempt = 1; attempt <= 5; attempt++) {
+                        long expectedSize = Files.size(path);
+                        if (expectedSize <= 0) {
+                                lastError = new IOException("File is empty: " + file.getAbsolutePath());
+                        } else if (expectedSize > Integer.MAX_VALUE) {
+                                throw new IOException("File too large to send in a single snapshot: " + file.getAbsolutePath());
+                        } else {
+                                byte[] snapshot = new byte[(int) expectedSize];
+                                try (FileInputStream fis = new FileInputStream(file)) {
+                                        int offset = 0;
+                                        while (offset < snapshot.length) {
+                                                int read = fis.read(snapshot, offset, snapshot.length - offset);
+                                                if (read < 0) {
+                                                        throw new EOFException("Reached EOF after " + offset + " bytes, expected " + expectedSize);
+                                                }
+                                                offset += read;
+                                        }
+                                }
+
+                                long actualSize = snapshot.length;
+                                if (actualSize == expectedSize) {
+                                        return snapshot;
+                                }
+
+                                lastError = new IOException(
+                                        "Snapshot size mismatch for " + file.getAbsolutePath() + ": expected " + expectedSize + " but got " + actualSize
+                                );
                         }
-                        
-                        dos.flush();
-                        System.out.println("[SEND-FILE] Sent " + totalSent + " bytes for " + file.getName());
-                        
-                        if (totalSent != file.length()) {
-                            System.err.println("[SEND-FILE] WARNING: Sent " + totalSent + " bytes but file size is " + file.length());
+
+                        if (attempt < 5) {
+                                try {
+                                        Thread.sleep(50);
+                                } catch (InterruptedException ie) {
+                                        Thread.currentThread().interrupt();
+                                        throw new IOException("Interrupted while waiting for stable file snapshot: " + file.getAbsolutePath(), ie);
+                                }
                         }
                 }
-    }
+
+                throw lastError != null ? lastError : new IOException("Unable to read file snapshot: " + file.getAbsolutePath());
+        }
 
     private void handleAssign() throws IOException {
 
@@ -1038,19 +1076,34 @@ public class ClientHandler implements Runnable {
 
     private void ensureFileExists(String filePath) throws IOException {
         File file = new File(filePath);
-        for (int attempt = 0; attempt < 20; attempt++) {
-            if (file.exists() && file.length() > 0) {
-                System.out.println("File verified: " + filePath + " (size: " + file.length() + " bytes)");
-                return;
-            }
-            try {
-                Thread.sleep(100); // Wait 100ms for file to be fully written
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IOException("Interrupted while waiting for file: " + filePath, e);
-            }
-        }
-        throw new IOException("File not written properly: " + filePath + " (size: " + 
-            (file.exists() ? file.length() : "NOT_FOUND") + ")");
+                // Wait until file exists, has non-zero size and size stays stable across checks
+                long lastSize = -1;
+                int stableCount = 0;
+                for (int attempt = 0; attempt < 40; attempt++) {
+                        if (file.exists()) {
+                                long size = file.length();
+                                if (size > 0) {
+                                        if (size == lastSize) {
+                                                stableCount++;
+                                        } else {
+                                                stableCount = 0;
+                                        }
+                                        lastSize = size;
+                                        // require size to be stable for 3 consecutive checks
+                                        if (stableCount >= 3) {
+                                                System.out.println("File verified: " + filePath + " (size: " + size + " bytes)");
+                                                return;
+                                        }
+                                }
+                        }
+                        try {
+                                Thread.sleep(50); // short wait before re-checking
+                        } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                throw new IOException("Interrupted while waiting for file: " + filePath, e);
+                        }
+                }
+                throw new IOException("File not written properly: " + filePath + " (size: " + 
+                        (file.exists() ? file.length() : "NOT_FOUND") + ")");
     }
 }

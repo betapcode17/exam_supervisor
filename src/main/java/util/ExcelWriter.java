@@ -1,8 +1,12 @@
 package util;
 
-import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.Map;
 
@@ -89,10 +93,22 @@ public class ExcelWriter {
             autoSizeColumns(currentSheet, 6);
 
             System.out.println("[EXCEL-DEBUG] Writing " + assignmentCount + " assignments to file: " + filePath);
-            try (FileOutputStream fos = new FileOutputStream(new File(filePath))) {
+            // Write to a temp file first, then move atomically to avoid advertising a file
+            // that is still being written by another thread/process.
+            Path finalPath = Paths.get(filePath);
+            Path tmpPath = Paths.get(filePath + ".tmp");
+            Files.createDirectories(finalPath.getParent());
+            try (FileOutputStream fos = new FileOutputStream(tmpPath.toFile())) {
                 workbook.write(fos);
-                System.out.println("[EXCEL-DEBUG] File written successfully: " + filePath);
+                fos.flush();
             }
+            try {
+                Files.move(tmpPath, finalPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException amnse) {
+                // Fallback if atomic move isn't supported on this filesystem
+                Files.move(tmpPath, finalPath, StandardCopyOption.REPLACE_EXISTING);
+            }
+            System.out.println("[EXCEL-DEBUG] File written successfully (atomic move): " + filePath);
             System.out.println("[EXCEL-DEBUG] File size: " + new java.io.File(filePath).length() + " bytes");
         }
     }
@@ -174,10 +190,19 @@ public class ExcelWriter {
             autoSizeColumns(currentSheet, 4);
 
             System.out.println("[EXCEL-DEBUG] Writing " + supervisors.size() + " supervisors to file: " + filePath);
-            try (FileOutputStream fos = new FileOutputStream(new File(filePath))) {
+            Path finalSupPath = Paths.get(filePath);
+            Path tmpSupPath = Paths.get(filePath + ".tmp");
+            Files.createDirectories(finalSupPath.getParent());
+            try (FileOutputStream fos = new FileOutputStream(tmpSupPath.toFile())) {
                 workbook.write(fos);
-                System.out.println("[EXCEL-DEBUG] Supervisor file written successfully: " + filePath);
+                fos.flush();
             }
+            try {
+                Files.move(tmpSupPath, finalSupPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException amnse) {
+                Files.move(tmpSupPath, finalSupPath, StandardCopyOption.REPLACE_EXISTING);
+            }
+            System.out.println("[EXCEL-DEBUG] Supervisor file written successfully (atomic move): " + filePath);
             System.out.println("[EXCEL-DEBUG] Supervisor file size: " + new java.io.File(filePath).length() + " bytes");
         }
     }

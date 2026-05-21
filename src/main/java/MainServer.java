@@ -1,4 +1,4 @@
-import javax.swing.*;
+import javax.swing.SwingUtilities;
 
 import view.ServerGUI;
 
@@ -6,11 +6,6 @@ import view.ServerGUI;
 public class MainServer {
   
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(new Runnable() {
-            @Override
-            public void run() {
-                new ServerGUI();
-            }
-        });
+        SwingUtilities.invokeLater(ServerGUI::new);
     }
 }
