@@ -28,14 +28,17 @@ public class ExcelWriter {
 
     public static void writeAssignments(String filePath, List<Assignment> assignments,
                                         Map<String, Invigilator> invigilatorMap) throws IOException {
+        System.out.println("[EXCEL-DEBUG] writeAssignments called with " + assignments.size() + " assignments");
+        System.out.println("[EXCEL-DEBUG] invigilatorMap has " + invigilatorMap.size() + " entries");
+        
         try (Workbook workbook = new XSSFWorkbook()) {
             CellStyle headerStyle = createHeaderStyle(workbook);
-            CellStyle subHeaderStyle = createSubHeaderStyle(workbook);
             CellStyle dataStyle = createDataStyle(workbook);
             CellStyle titleStyle = createTitleStyle(workbook);
 
             final int maxRowsPerSheet = 20;
             int totalDataRows = assignments.size() * 2;
+            System.out.println("[EXCEL-DEBUG] Total data rows to write: " + totalDataRows);
             
             // Tạo sheet đầu tiên
             String sheetName = totalDataRows > maxRowsPerSheet ? "Sheet 1" : "DANHSACHPHANCONG";
@@ -44,43 +47,40 @@ public class ExcelWriter {
             int sheetIndex = 1;
             
             // Thêm header cho sheet đầu tiên
-            rowIndex = addAssignmentHeaders(currentSheet, rowIndex, headerStyle, subHeaderStyle);
+            rowIndex = addAssignmentHeaders(currentSheet, rowIndex, headerStyle);
 
             int dataRowCount = 0;
             int stt = 1;
+            int assignmentCount = 0;
 
             for (Assignment assignment : assignments) {
+                assignmentCount++;
+                System.out.println("[EXCEL-DEBUG] Assignment " + assignmentCount + ": Room=" + assignment.getPhongThi() + ", GV1=" + assignment.getMaGV1() + ", GV2=" + assignment.getMaGV2());
+                
                 Invigilator inv1 = invigilatorMap.get(assignment.getMaGV1());
                 Invigilator inv2 = invigilatorMap.get(assignment.getMaGV2());
+                
+                if (inv1 == null) System.out.println("[EXCEL-DEBUG] WARNING: inv1 is null for " + assignment.getMaGV1());
+                if (inv2 == null) System.out.println("[EXCEL-DEBUG] WARNING: inv2 is null for " + assignment.getMaGV2());
 
-                // Ghi dòng giám thị 1
-                if (dataRowCount >= maxRowsPerSheet) {
-                    // Sheet đầy, tạo sheet mới
+                // Check if we need a new sheet for BOTH rows of this assignment
+                if (dataRowCount + 2 > maxRowsPerSheet) {
+                    // Sheet đầy, tạo sheet mới TRƯỚC khi viết assignment này
                     autoSizeColumns(currentSheet, 6);
                     sheetIndex++;
                     sheetName = "Sheet " + sheetIndex;
                     currentSheet = workbook.createSheet(sheetName);
                     rowIndex = addVietnamHeader(currentSheet, titleStyle);
-                    rowIndex = addAssignmentHeaders(currentSheet, rowIndex, headerStyle, subHeaderStyle);
+                    rowIndex = addAssignmentHeaders(currentSheet, rowIndex, headerStyle);
                     dataRowCount = 0;
                 }
                 
+                // Ghi dòng giám thị 1
                 rowIndex = writeAssignmentRow(currentSheet, rowIndex, stt++, assignment.getMaGV1(), inv1,
                         "X", "", assignment.getPhongThi(), dataStyle);
                 dataRowCount++;
 
-                // Ghi dòng giám thị 2
-                if (dataRowCount >= maxRowsPerSheet) {
-                    // Sheet đầy, tạo sheet mới
-                    autoSizeColumns(currentSheet, 6);
-                    sheetIndex++;
-                    sheetName = "Sheet " + sheetIndex;
-                    currentSheet = workbook.createSheet(sheetName);
-                    rowIndex = addVietnamHeader(currentSheet, titleStyle);
-                    rowIndex = addAssignmentHeaders(currentSheet, rowIndex, headerStyle, subHeaderStyle);
-                    dataRowCount = 0;
-                }
-                
+                // Ghi dòng giám thị 2 (cùng sheet vì đã check phía trên)
                 rowIndex = writeAssignmentRow(currentSheet, rowIndex, stt++, assignment.getMaGV2(), inv2,
                         "", "X", assignment.getPhongThi(), dataStyle);
                 dataRowCount++;
@@ -88,36 +88,32 @@ public class ExcelWriter {
 
             autoSizeColumns(currentSheet, 6);
 
+            System.out.println("[EXCEL-DEBUG] Writing " + assignmentCount + " assignments to file: " + filePath);
             try (FileOutputStream fos = new FileOutputStream(new File(filePath))) {
                 workbook.write(fos);
+                System.out.println("[EXCEL-DEBUG] File written successfully: " + filePath);
             }
+            System.out.println("[EXCEL-DEBUG] File size: " + new java.io.File(filePath).length() + " bytes");
         }
     }
     
-    private static int addAssignmentHeaders(Sheet sheet, int rowIndex, CellStyle headerStyle, CellStyle subHeaderStyle) {
+    private static int addAssignmentHeaders(Sheet sheet, int rowIndex, CellStyle headerStyle) {
         createRow(sheet, rowIndex, 28f);
-        createRow(sheet, rowIndex + 1, 30f);
 
         createCell(sheet, rowIndex, 0, "STT", headerStyle);
         createCell(sheet, rowIndex, 1, "Mã GV", headerStyle);
         createCell(sheet, rowIndex, 2, "Họ và tên", headerStyle);
-        createCell(sheet, rowIndex, 3, "GIÁM THỊ", headerStyle);
+        createCell(sheet, rowIndex, 3, "Giám thị 1", headerStyle);
+        createCell(sheet, rowIndex, 4, "Giám thị 2", headerStyle);
         createCell(sheet, rowIndex, 5, "Phòng thi", headerStyle);
 
-        createCell(sheet, rowIndex + 1, 3, "Giám thị 1", subHeaderStyle);
-        createCell(sheet, rowIndex + 1, 4, "Giám thị 2", subHeaderStyle);
-
-        sheet.addMergedRegion(new CellRangeAddress(rowIndex, rowIndex + 1, 0, 0));
-        sheet.addMergedRegion(new CellRangeAddress(rowIndex, rowIndex + 1, 1, 1));
-        sheet.addMergedRegion(new CellRangeAddress(rowIndex, rowIndex + 1, 2, 2));
-        sheet.addMergedRegion(new CellRangeAddress(rowIndex, rowIndex, 3, 4));
-        sheet.addMergedRegion(new CellRangeAddress(rowIndex, rowIndex + 1, 5, 5));
-
-        return rowIndex + 2;
+        return rowIndex + 1;
     }
 
     public static void writeSupervisors(String filePath, List<Supervisor> supervisors,
                                         Map<String, Invigilator> invigilatorMap) throws IOException {
+        System.out.println("[EXCEL-DEBUG] writeSupervisors called with " + supervisors.size() + " supervisors");
+        
         try (Workbook workbook = new XSSFWorkbook()) {
             CellStyle headerStyle = createHeaderStyle(workbook);
             CellStyle dataStyle = createDataStyle(workbook);
@@ -177,9 +173,12 @@ public class ExcelWriter {
 
             autoSizeColumns(currentSheet, 4);
 
+            System.out.println("[EXCEL-DEBUG] Writing " + supervisors.size() + " supervisors to file: " + filePath);
             try (FileOutputStream fos = new FileOutputStream(new File(filePath))) {
                 workbook.write(fos);
+                System.out.println("[EXCEL-DEBUG] Supervisor file written successfully: " + filePath);
             }
+            System.out.println("[EXCEL-DEBUG] Supervisor file size: " + new java.io.File(filePath).length() + " bytes");
         }
     }
 
@@ -269,17 +268,6 @@ public class ExcelWriter {
         font.setFontHeightInPoints((short) 11);
         style.setFont(font);
         style.setFillForegroundColor(IndexedColors.LIGHT_YELLOW.getIndex());
-        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-        return style;
-    }
-
-    private static CellStyle createSubHeaderStyle(Workbook workbook) {
-        CellStyle style = createBaseStyle(workbook);
-        Font font = workbook.createFont();
-        font.setBold(true);
-        font.setFontHeightInPoints((short) 10);
-        style.setFont(font);
-        style.setFillForegroundColor(IndexedColors.LEMON_CHIFFON.getIndex());
         style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
         return style;
     }

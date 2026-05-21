@@ -859,16 +859,25 @@ public class ClientHandler implements Runnable {
                 dos.writeLong(file.length());
                 dos.flush();
 
+                System.out.println("[SEND-FILE] Sending: " + file.getName() + " (" + file.length() + " bytes)");
+                
                 try (FileInputStream fis = new FileInputStream(file)) {
                         byte[] buffer = new byte[8192];
                         int read;
+                        long totalSent = 0;
 
                         while ((read = fis.read(buffer)) > 0) {
                                 dos.write(buffer, 0, read);
+                                totalSent += read;
+                        }
+                        
+                        dos.flush();
+                        System.out.println("[SEND-FILE] Sent " + totalSent + " bytes for " + file.getName());
+                        
+                        if (totalSent != file.length()) {
+                            System.err.println("[SEND-FILE] WARNING: Sent " + totalSent + " bytes but file size is " + file.length());
                         }
                 }
-
-                dos.flush();
     }
 
     private void handleAssign() throws IOException {
@@ -924,19 +933,23 @@ public class ClientHandler implements Runnable {
                                 }
                         });
 
+                        // Generate assignments WITHOUT persisting to DB yet
                         AssignmentResult result = assignmentBO.generateAssignments(input);
+                        
+                        System.out.println("[ASSIGN-RESULT] Assignments generated: " + result.getAssignments().size());
+                        System.out.println("[ASSIGN-RESULT] Supervisors generated: " + result.getSupervisors().size());
 
             String outputDir = createTimestampedDirectory("output");
-
-            Map<String, Invigilator> invMap =
-                    new HashMap<>();
-
+            
+            // Create invigilator map BEFORE using it
+            Map<String, Invigilator> invMap = new HashMap<>();
             for (Invigilator inv : invigilators) {
-
-                invMap.put(
-                        inv.getMaGV(),
-                        inv
-                );
+                invMap.put(inv.getMaGV(), inv);
+            }
+            
+            System.out.println("[ASSIGN-RESULT] Invigilator map size: " + invMap.size());
+            for (model.bean.Assignment asg : result.getAssignments()) {
+                System.out.println("[ASSIGN-RESULT] Assignment: " + asg.getPhongThi() + " -> " + asg.getMaGV1() + "," + asg.getMaGV2());
             }
 
             String assignmentFile =
@@ -954,13 +967,20 @@ public class ClientHandler implements Runnable {
                     result.getAssignments(),
                     invMap
             );
+            System.out.println("[WRITE-EXCEL] Assignment file: " + assignmentFile);
 
             ExcelWriter.writeSupervisors(
                     supervisorFile,
                     result.getSupervisors(),
                     invMap
             );
+            System.out.println("[WRITE-EXCEL] Supervisor file: " + supervisorFile);
 
+            // Ensure files are fully written before sending to client
+            ensureFileExists(assignmentFile);
+            ensureFileExists(supervisorFile);
+
+            // Send results to client FIRST (before saving to database)
             dos.writeUTF("SUCCESS");
             dos.writeInt(result.getAssignments().size() * 2);
             dos.writeInt(result.getSupervisors().size());
@@ -968,10 +988,22 @@ public class ClientHandler implements Runnable {
             dos.writeInt(2);
             sendFileToClient(new File(assignmentFile));
             sendFileToClient(new File(supervisorFile));
+            dos.flush();
 
             System.out.println(
-                    "Assignment completed successfully"
+                    "Assignment results sent to client"
             );
+
+            // NOW persist to database after client receives results
+            try {
+                assignmentBO.persistAssignmentResult(result, input);
+                System.out.println(
+                        "Assignment persisted to database successfully"
+                );
+            } catch (SQLException e) {
+                System.err.println("ERROR persisting assignment to database: " + e.getMessage());
+                e.printStackTrace();
+            }
 
         } catch (IllegalArgumentException e) {
 
@@ -1001,6 +1033,24 @@ public class ClientHandler implements Runnable {
                 if (!directory.exists()) {
                         directory.mkdirs();
                 }
-                return directory.getPath();
+                return directory.getAbsolutePath();
         }
+
+    private void ensureFileExists(String filePath) throws IOException {
+        File file = new File(filePath);
+        for (int attempt = 0; attempt < 20; attempt++) {
+            if (file.exists() && file.length() > 0) {
+                System.out.println("File verified: " + filePath + " (size: " + file.length() + " bytes)");
+                return;
+            }
+            try {
+                Thread.sleep(100); // Wait 100ms for file to be fully written
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("Interrupted while waiting for file: " + filePath, e);
+            }
+        }
+        throw new IOException("File not written properly: " + filePath + " (size: " + 
+            (file.exists() ? file.length() : "NOT_FOUND") + ")");
+    }
 }
