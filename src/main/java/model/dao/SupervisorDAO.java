@@ -56,6 +56,59 @@ public class SupervisorDAO {
         }
     }
 
+    public void insertBatch(List<Supervisor> supervisors) throws SQLException {
+        if (supervisors == null || supervisors.isEmpty()) return;
+        Connection conn = DatabaseConnection.getInstance().getConnection();
+        try (PreparedStatement pstmt = conn.prepareStatement(INSERT_SQL)) {
+            conn.setAutoCommit(false);
+            java.util.Map<String, Integer> maToTt = new java.util.HashMap<>();
+            java.util.Map<String, Integer> roomToStt = new java.util.HashMap<>();
+
+            for (Supervisor s : supervisors) {
+                pstmt.setInt(1, s.getShift());
+
+                String ma = s.getMaGV();
+                Integer tt = maToTt.get(ma);
+                if (tt == null) {
+                    InvigilatorDAO invDAO = new InvigilatorDAO();
+                    Invigilator inv = invDAO.findByMaGV(ma);
+                    if (inv == null) { conn.rollback(); throw new SQLException("Không tìm thấy cán bộ: " + ma); }
+                    tt = inv.getTt();
+                    maToTt.put(ma, tt);
+                }
+
+                String from = s.getFromRoom();
+                Integer fromStt = roomToStt.get(from);
+                if (fromStt == null) {
+                    RoomDAO roomDAO = new RoomDAO();
+                    Room r = roomDAO.findByPhongThi(from);
+                    if (r == null) { conn.rollback(); throw new SQLException("Không tìm thấy phòng nguồn: " + from); }
+                    fromStt = r.getStt();
+                    roomToStt.put(from, fromStt);
+                }
+
+                String to = s.getToRoom();
+                Integer toStt = roomToStt.get(to);
+                if (toStt == null) {
+                    RoomDAO roomDAO = new RoomDAO();
+                    Room r = roomDAO.findByPhongThi(to);
+                    if (r == null) { conn.rollback(); throw new SQLException("Không tìm thấy phòng đích: " + to); }
+                    toStt = r.getStt();
+                    roomToStt.put(to, toStt);
+                }
+
+                pstmt.setInt(2, tt);
+                pstmt.setInt(3, fromStt);
+                pstmt.setInt(4, toStt);
+                pstmt.addBatch();
+            }
+            pstmt.executeBatch();
+            conn.commit();
+        } finally {
+            DatabaseConnection.closeConnection(conn);
+        }
+    }
+
     public void update(Supervisor supervisor) throws SQLException {
         Connection conn = DatabaseConnection.getInstance().getConnection();
         try (PreparedStatement pstmt = conn.prepareStatement(UPDATE_SQL)) {
