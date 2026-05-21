@@ -9,6 +9,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
 import java.util.List;
+import java.util.function.Consumer;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -84,6 +85,10 @@ public class ClientGUI extends JFrame {
     private boolean isConnected = false;
     private boolean isFileUploaded = false;
     private int currentShift = 0;  // Auto-increment shift
+    private final Consumer<String> uiLog = message -> SwingUtilities.invokeLater(() -> {
+        resultArea.append(message.endsWith("\n") ? message : message + "\n");
+        resultArea.setCaretPosition(resultArea.getDocument().getLength());
+    });
 
     public ClientGUI() {
         setTitle("Exam Supervisor Assignment System - Client");
@@ -413,9 +418,9 @@ public class ClientGUI extends JFrame {
                 return;
             }
             
-            resultArea.append("Đang kết nối tới " + url + ":" + port + "...\n");
+            uiLog.accept("Đang kết nối tới " + url + ":" + port + "...");
             
-            tcpClient = new TCPClient(url, port);
+            tcpClient = new TCPClient(url, port, uiLog);
             tcpClient.connect();
             
             isConnected = true;
@@ -433,13 +438,13 @@ public class ClientGUI extends JFrame {
             sendFileButton.setEnabled(false);
             generateButton.setEnabled(false);
             
-            resultArea.append("Kết nối thành công!\n");
+            uiLog.accept("Kết nối thành công!");
             
         } catch (NumberFormatException ex) {
             JOptionPane.showMessageDialog(this, "Port không hợp lệ", "Lỗi", JOptionPane.ERROR_MESSAGE);
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, "Lỗi kết nối: " + ex.getMessage(), "Lỗi", JOptionPane.ERROR_MESSAGE);
-            resultArea.append("Lỗi kết nối: " + ex.getMessage() + "\n");
+            uiLog.accept("Lỗi kết nối: " + ex.getMessage());
         }
     }
 
@@ -463,7 +468,7 @@ public class ClientGUI extends JFrame {
         sendFileButton.setEnabled(false);
         generateButton.setEnabled(false);
         
-        resultArea.append("Đã ngắt kết nối\n");
+        uiLog.accept("Đã ngắt kết nối");
     }
 
     private void selectFile() {
@@ -476,7 +481,7 @@ public class ClientGUI extends JFrame {
             selectedFilePath = file.getAbsolutePath();
             filePathField.setText(selectedFilePath);
             sendFileButton.setEnabled(true);
-            resultArea.append("Đã chọn file: " + selectedFilePath + "\n");
+            uiLog.accept("Đã chọn file: " + selectedFilePath);
             // Load first two sheets into the input tab areas for preview
             try {
                 ExcelReader reader = new ExcelReader(selectedFilePath);
@@ -485,7 +490,7 @@ public class ClientGUI extends JFrame {
                 populateTableFromLines(inputSheet0Table, s0);
                 populateTableFromLines(inputSheet1Table, s1);
             } catch (Exception ex) {
-                resultArea.append("Lỗi đọc file để hiển thị preview: " + ex.getMessage() + "\n");
+                uiLog.accept("Lỗi đọc file để hiển thị preview: " + ex.getMessage());
             }
         }
     }
@@ -553,8 +558,7 @@ public class ClientGUI extends JFrame {
             @Override
             protected void process(java.util.List<String> chunks) {
                 for (String chunk : chunks) {
-                    resultArea.append(chunk);
-                    resultArea.setCaretPosition(resultArea.getDocument().getLength()); // Auto-scroll
+                    uiLog.accept(chunk.trim());
                 }
             }
             
@@ -575,7 +579,7 @@ public class ClientGUI extends JFrame {
                         sendFileButton.setEnabled(true);
                     }
                 } catch (Exception e) {
-                    resultArea.append("Lỗi khi gửi file: " + e.getMessage() + "\n");
+                    uiLog.accept("Lỗi khi gửi file: " + e.getMessage());
                     selectFileButton.setEnabled(true);
                     sendFileButton.setEnabled(true);
                 }
@@ -635,12 +639,12 @@ public class ClientGUI extends JFrame {
             numberOfRoomsField.setEnabled(false);
             numberOfInvigilatorsField.setEnabled(false);
             
-            resultArea.append("\n" + "=".repeat(60) + "\n");
-            resultArea.append("📋 PHÂN CÔNG CÁ " + currentShift + "\n");
-            resultArea.append("=".repeat(60) + "\n");
-            resultArea.append("Số phòng (n): " + numberOfRooms + "\n");
-            resultArea.append("Số cán bộ (m): " + numberOfInvigilators + "\n");
-            resultArea.append("Đang xử lý...\n");
+            uiLog.accept("============================================================");
+            uiLog.accept("PHÂN CÔNG CÁ " + currentShift);
+            uiLog.accept("============================================================");
+            uiLog.accept("Số phòng (n): " + numberOfRooms);
+            uiLog.accept("Số cán bộ (m): " + numberOfInvigilators);
+            uiLog.accept("Đang xử lý...");
             progressBar.setValue(50);
             
             new SwingWorker<Boolean, String>() {
@@ -649,27 +653,27 @@ public class ClientGUI extends JFrame {
                     try {
                         long startTime = System.currentTimeMillis();
                         
-                        boolean success = tcpClient.generateAssignment(selectedFilePath, numberOfRooms, 
+                        boolean success = tcpClient.generateAssignment(selectedFilePath, numberOfRooms,
                                                                       numberOfInvigilators, currentShift,
-                                                                      msg -> publish(msg + "\n"));
+                                                                      msg -> publish(msg));
                         long endTime = System.currentTimeMillis();
                         long duration = endTime - startTime;
                         
                         if (success) {
-                            publish("✓ Phân công thành công! (" + duration + "ms)\n");
-                            publish("✓ Đã phân " + tcpClient.getLastInvigilatorCount() + " giáo viên cho bên giám thị\n");
-                            publish("✓ Đã phân " + tcpClient.getLastSupervisorCount() + " giáo viên cho bên giám sát\n");
-                            publish("✓ Kết quả đã được xuất tại thư mục 'output/<timestamp>'\n");
+                            publish("✓ Phân công thành công! (" + duration + "ms)");
+                            publish("✓ Đã phân " + tcpClient.getLastInvigilatorCount() + " giáo viên cho bên giám thị");
+                            publish("✓ Đã phân " + tcpClient.getLastSupervisorCount() + " giáo viên cho bên giám sát");
+                            publish("✓ Kết quả đã được xuất tại thư mục 'output/<timestamp>'");
                             progressBar.setValue(100);
                             return true;
                         } else {
-                            publish("✗ Phân công thất bại!\n");
+                            publish("✗ Phân công thất bại!");
                             progressBar.setValue(0);
                             currentShift--;  // Rollback shift on failure
                             return false;
                         }
                     } catch (Exception ex) {
-                        publish("✗ Lỗi: " + ex.getMessage() + "\n");
+                        publish("✗ Lỗi: " + ex.getMessage());
                         progressBar.setValue(0);
                         currentShift--;  // Rollback shift on error
                         return false;
@@ -679,8 +683,7 @@ public class ClientGUI extends JFrame {
                 @Override
                 protected void process(java.util.List<String> chunks) {
                     for (String chunk : chunks) {
-                        resultArea.append(chunk);
-                        resultArea.setCaretPosition(resultArea.getDocument().getLength()); // Auto-scroll
+                        uiLog.accept(chunk);
                     }
                 }
                 
@@ -716,9 +719,9 @@ public class ClientGUI extends JFrame {
                                                                         result0Pages.add(lines);
                                                                     }
                                                                 }
-                                                                resultArea.append("Nạp file kết quả: " + f.getName() + " (" + sheets + " sheet(s))\n");
+                                                                uiLog.accept("Nạp file kết quả: " + f.getName() + " (" + sheets + " sheet(s))");
                                                             } catch (Exception ex) {
-                                                                resultArea.append("Lỗi đọc file kết quả " + f.getName() + ": " + ex.getMessage() + "\n");
+                                                                uiLog.accept("Lỗi đọc file kết quả " + f.getName() + ": " + ex.getMessage());
                                                             }
                                                         }
                                                         // show first pages if available
@@ -730,7 +733,7 @@ public class ClientGUI extends JFrame {
                                     }
                                 }
                             } catch (Exception ex) {
-                                resultArea.append("Lỗi khi nạp file kết quả: " + ex.getMessage() + "\n");
+                                uiLog.accept("Lỗi khi nạp file kết quả: " + ex.getMessage());
                             }
                             // allow running another assignment without re-uploading
                             generateButton.setEnabled(true);
@@ -738,7 +741,7 @@ public class ClientGUI extends JFrame {
                             generateButton.setEnabled(true);
                         }
                     } catch (Exception e) {
-                        resultArea.append("Lỗi khi hoàn tất phân công: " + e.getMessage() + "\n");
+                        uiLog.accept("Lỗi khi hoàn tất phân công: " + e.getMessage());
                         generateButton.setEnabled(true);
                     } finally {
                         numberOfRoomsField.setEnabled(true);
@@ -759,7 +762,7 @@ public class ClientGUI extends JFrame {
         int result = fileChooser.showSaveDialog(this);
         if (result == JFileChooser.APPROVE_OPTION) {
             File dir = fileChooser.getSelectedFile();
-            resultArea.append("Kết quả đã được lưu tại: " + dir.getAbsolutePath() + "\n");
+            uiLog.accept("Kết quả đã được lưu tại: " + dir.getAbsolutePath());
         }
     }
 

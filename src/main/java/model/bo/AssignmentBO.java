@@ -2,13 +2,10 @@ package model.bo;
 
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -23,15 +20,11 @@ import model.bean.RoomHistory;
 import model.bean.ScheduleInput;
 import model.bean.Supervisor;
 import model.dao.AssignmentDAO;
-import model.dao.InvigilatorDAO;
 import model.dao.PairHistoryDAO;
-import model.dao.RoomDAO;
 import model.dao.RoomHistoryDAO;
 import model.dao.SupervisorDAO;
 
 public class AssignmentBO {
-    private InvigilatorDAO invigilatorDAO;
-    private RoomDAO roomDAO;
     private AssignmentDAO assignmentDAO;
     private SupervisorDAO supervisorDAO;
     private PairHistoryDAO pairHistoryDAO;
@@ -44,8 +37,6 @@ public class AssignmentBO {
     }
 
     public AssignmentBO(Consumer<String> logger) {
-        this.invigilatorDAO = new InvigilatorDAO();
-        this.roomDAO = new RoomDAO();
         this.assignmentDAO = new AssignmentDAO();
         this.supervisorDAO = new SupervisorDAO();
         this.pairHistoryDAO = new PairHistoryDAO();
@@ -103,8 +94,10 @@ public class AssignmentBO {
             if (maA != null) maA = maA.trim();
             if (maB != null) maB = maB.trim();
 
-            int countA = maA == null || maA.isEmpty() ? Integer.MAX_VALUE : maCounts.getOrDefault(maA, Integer.MAX_VALUE);
-            int countB = maB == null || maB.isEmpty() ? Integer.MAX_VALUE : maCounts.getOrDefault(maB, Integer.MAX_VALUE);
+            Integer countABoxed = maA == null || maA.isEmpty() ? null : maCounts.get(maA);
+            Integer countBBoxed = maB == null || maB.isEmpty() ? null : maCounts.get(maB);
+            int countA = countABoxed == null ? Integer.MAX_VALUE : countABoxed;
+            int countB = countBBoxed == null ? Integer.MAX_VALUE : countBBoxed;
 
             // unique maGV (count==1) first
             if (countA != countB) return Integer.compare(countA, countB);
@@ -168,7 +161,6 @@ public class AssignmentBO {
         List<Assignment> tentativeAssignments = new ArrayList<>();
 
         boolean success = backtrackAssignRooms(
-            0,
             selectedRooms,
             selectedInvigilators,
             usedInvigilators,
@@ -182,38 +174,19 @@ public class AssignmentBO {
             throw new IllegalArgumentException("Không thể tìm phương án phân công thỏa mãn ràng buộc cho tất cả phòng");
         }
 
-        // Persist tentative assignments and histories into DB using batch operations
-        List<Assignment> toPersistAssignments = new ArrayList<>(tentativeAssignments);
-        List<PairHistory> toPersistPairs = new ArrayList<>();
-        List<RoomHistory> toPersistRooms = new ArrayList<>();
-
+        // Build result without persisting to DB yet (DB persist happens later in ClientHandler after sending to client)
         for (Assignment asg : tentativeAssignments) {
             log("[ASSIGN-FINAL] Room " + asg.getPhongThi() + " -> GT1=" + asg.getMaGV1() + ", GT2=" + asg.getMaGV2());
             assignments.add(asg);
-            toPersistPairs.add(new PairHistory(asg.getMaGV1(), asg.getMaGV2(), shift));
-            toPersistRooms.add(new RoomHistory(asg.getMaGV1(), asg.getPhongThi(), shift));
-            toPersistRooms.add(new RoomHistory(asg.getMaGV2(), asg.getPhongThi(), shift));
 
             // Mark as used (by maGV) for later supervisor assignment
             if (asg.getMaGV1() != null) usedInvigilators.add(asg.getMaGV1());
             if (asg.getMaGV2() != null) usedInvigilators.add(asg.getMaGV2());
         }
-
-        try {
-            // Batch insert assignments first
-            assignmentDAO.insertBatch(toPersistAssignments);
-
-            // Then batch insert pair histories and room histories
-            pairHistoryDAO.insertBatch(toPersistPairs);
-            roomHistoryDAO.insertBatch(toPersistRooms);
-        } catch (SQLException e) {
-            logInsertFailure("batch_persist", "shift=" + shift, e);
-            throw e;
-        }
         
-        // Remaining invigilators become supervisors
+        // Remaining invigilators become supervisors (without persisting supervisor data yet)
         log("[ASSIGN] Da xong phan coi thi, bat dau phan giamsat");
-        supervisors.addAll(assignSupervisors(
+        supervisors.addAll(assignSupervisorsWithoutPersist(
             selectedInvigilators,
             usedInvigilators,
             selectedRooms,
@@ -227,54 +200,57 @@ public class AssignmentBO {
         return new AssignmentResult(assignments, supervisors);
     }
 
-    private List<Invigilator> findValidPair(List<Invigilator> availableInvigilators,
-                                           Set<String> usedInvigilators,
-                                           List<PairHistory> pairHistories,
-                                           List<RoomHistory> roomHistories,
-                                           String roomId, Integer shift) {
-        for (int i = 0; i < availableInvigilators.size(); i++) {
-            Invigilator inv1 = availableInvigilators.get(i);
-            String ma1 = inv1.getMaGV();
-            if (ma1 == null || ma1.trim().isEmpty()) continue;
-            ma1 = ma1.trim();
-            if (usedInvigilators.contains(ma1)) continue;
-
-            // Check if inv1 has been in this room before (history keyed by maGV)
-            if (hasBeenInRoom(roomHistories, ma1, roomId)) continue;
-
-            for (int j = i + 1; j < availableInvigilators.size(); j++) {
-                Invigilator inv2 = availableInvigilators.get(j);
-                String ma2 = inv2.getMaGV();
-                if (ma2 == null || ma2.trim().isEmpty()) continue;
-                ma2 = ma2.trim();
-                if (usedInvigilators.contains(ma2)) continue;
-
-                // Check if inv2 has been in this room before
-                if (hasBeenInRoom(roomHistories, ma2, roomId)) continue;
-
-                // Check if they've been paired before (history keyed by maGV)
-                if (!hasPairedBefore(pairHistories, ma1, ma2)) {
-                    return Arrays.asList(inv1, inv2);
-                }
+    public void persistAssignmentResult(AssignmentResult result, ScheduleInput input) throws SQLException {
+        int shift = input.getShift();
+        
+        // Persist assignments and pair/room histories in batch
+        List<Assignment> assignments = result.getAssignments();
+        List<PairHistory> toPersistPairs = new ArrayList<>();
+        List<RoomHistory> toPersistRooms = new ArrayList<>();
+        
+        for (Assignment asg : assignments) {
+            toPersistPairs.add(new PairHistory(asg.getMaGV1(), asg.getMaGV2(), shift));
+            toPersistRooms.add(new RoomHistory(asg.getMaGV1(), asg.getPhongThi(), shift));
+            toPersistRooms.add(new RoomHistory(asg.getMaGV2(), asg.getPhongThi(), shift));
+        }
+        
+        try {
+            assignmentDAO.insertBatch(assignments);
+            pairHistoryDAO.insertBatch(toPersistPairs);
+            roomHistoryDAO.insertBatch(toPersistRooms);
+        } catch (SQLException e) {
+            logInsertFailure("batch_persist", "shift=" + shift, e);
+            throw e;
+        }
+        
+        // Persist supervisors and their room histories
+        List<Supervisor> supervisors = result.getSupervisors();
+        List<RoomHistory> supervisorRoomHistories = new ArrayList<>();
+        for (Supervisor sup : supervisors) {
+            List<Room> roomsInRange = input.getRooms().stream()
+                .filter(r -> r.getPhongThi().compareTo(sup.getFromRoom()) >= 0 
+                          && r.getPhongThi().compareTo(sup.getToRoom()) <= 0)
+                .collect(java.util.stream.Collectors.toList());
+            for (Room r : roomsInRange) {
+                supervisorRoomHistories.add(new RoomHistory(sup.getMaGV(), r.getPhongThi(), shift));
             }
         }
-
-        return null;
-    }
-
-    private boolean hasBeenInRoom(List<RoomHistory> roomHistories, String maGV, String roomId) {
-        for (RoomHistory rh : roomHistories) {
-            if (rh.getMaGV().equals(maGV) && rh.getPhongThi().equals(roomId)) {
-                return true;
-            }
+        
+        try {
+            if (!supervisors.isEmpty()) supervisorDAO.insertBatch(supervisors);
+            if (!supervisorRoomHistories.isEmpty()) roomHistoryDAO.insertBatch(supervisorRoomHistories);
+        } catch (SQLException e) {
+            logInsertFailure("supervisor_batch_persist", "shift=" + shift, e);
+            throw e;
         }
-        return false;
+        
+        log("[PERSIST] Assignment and supervisor data persisted to database");
     }
 
-    private List<Supervisor> assignSupervisors(List<Invigilator> selectedInvigilators,
+    private List<Supervisor> assignSupervisorsWithoutPersist(List<Invigilator> selectedInvigilators,
                                                Set<String> usedInvigilators,
                                                List<Room> selectedRooms,
-                                               int shift) throws SQLException {
+                                               int shift) {
         log("[SUPERVISOR] Bat dau phan giamsat cho " + selectedRooms.size() + " phong");
         List<Invigilator> availableSupervisors = new ArrayList<>();
         for (Invigilator invigilator : selectedInvigilators) {
@@ -287,7 +263,12 @@ public class AssignmentBO {
         }
 
         // Load room histories to classify exclusions
-        List<RoomHistory> roomHistories = roomHistoryDAO.findAll();
+        List<RoomHistory> roomHistories = new ArrayList<>();
+        try {
+            roomHistories = roomHistoryDAO.findAll();
+        } catch (SQLException e) {
+            log("[SUPERVISOR] Warning: Could not load room histories - " + e.getMessage());
+        }
 
         // Use unique selected count (by maGV) when computing expected remaining supervisors
         Set<String> selectedUniqueSet = new HashSet<>();
@@ -382,8 +363,6 @@ public class AssignmentBO {
         }
 
         List<Supervisor> assignedSupervisors = new ArrayList<>();
-        List<Supervisor> toPersistSupervisors = new ArrayList<>();
-        List<RoomHistory> toPersistSupervisorRoomHistories = new ArrayList<>();
         // Iterate over a fixed snapshot to avoid modifying the list while iterating
         int supCount = availableSupervisors.size();
         for (int i = 0; i < supCount; i++) {
@@ -395,22 +374,9 @@ public class AssignmentBO {
             log("[SUPERVISOR] Gan " + supervisorInvigilator.getMaGV() + " cho day phong " + fromRoom + " -> " + toRoom);
             Supervisor supervisor = new Supervisor(shift, supervisorInvigilator.getMaGV(), fromRoom, toRoom);
             assignedSupervisors.add(supervisor);
-
-            toPersistSupervisors.add(supervisor);
-            for (Room room : roomBlock) {
-                toPersistSupervisorRoomHistories.add(new RoomHistory(supervisorInvigilator.getMaGV(), room.getPhongThi(), shift));
-            }
         }
 
-        // persist supervisors and their room histories in batches
-        try {
-            if (!toPersistSupervisors.isEmpty()) supervisorDAO.insertBatch(toPersistSupervisors);
-            if (!toPersistSupervisorRoomHistories.isEmpty()) roomHistoryDAO.insertBatch(toPersistSupervisorRoomHistories);
-        } catch (SQLException e) {
-            logInsertFailure("supervisor_batch_persist", "shift=" + shift, e);
-            throw e;
-        }
-
+        // Note: DB persistence for supervisors happens later in persistAssignmentResult()
         return assignedSupervisors;
     }
 
@@ -485,29 +451,11 @@ public class AssignmentBO {
         }
     }
 
-    private boolean hasPairedBefore(List<PairHistory> pairHistories, String maGV1, String maGV2) {
-        for (PairHistory ph : pairHistories) {
-            if ((ph.getMaGV1().equals(maGV1) && ph.getMaGV2().equals(maGV2)) ||
-                (ph.getMaGV1().equals(maGV2) && ph.getMaGV2().equals(maGV1))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean hasPairedInAssignments(List<Assignment> assignments, String ma1, String ma2) {
-        for (Assignment a : assignments) {
-            if ((a.getMaGV1().equals(ma1) && a.getMaGV2().equals(ma2)) ||
-                (a.getMaGV1().equals(ma2) && a.getMaGV2().equals(ma1))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean hasBeenInRoomAssignments(List<Assignment> assignments, String maGV, String roomId) {
-        for (Assignment a : assignments) {
-            if (a.getPhongThi().equals(roomId) && (a.getMaGV1().equals(maGV) || a.getMaGV2().equals(maGV))) {
+    private boolean hasBeenInRoom(List<RoomHistory> roomHistories, String maGV, String roomId) {
+        for (RoomHistory rh : roomHistories) {
+            if (rh.getMaGV() != null && rh.getPhongThi() != null
+                    && rh.getMaGV().trim().equals(maGV)
+                    && rh.getPhongThi().trim().equals(roomId)) {
                 return true;
             }
         }
@@ -515,7 +463,6 @@ public class AssignmentBO {
     }
 
     private boolean backtrackAssignRooms(
-            int idx,
             List<Room> rooms,
             List<Invigilator> availableInvigilators,
             Set<String> usedInvigilators,
@@ -546,6 +493,8 @@ public class AssignmentBO {
 
         // Use an index-based scan over a snapshot list to avoid ConcurrentModificationException.
         List<Invigilator> candidates = new ArrayList<>(availableInvigilators);
+        Set<String> currentPairs = new HashSet<>();
+        Set<String> currentRoomUsage = new HashSet<>();
 
         for (Room room : rooms) {
             String roomId = room.getPhongThi();
@@ -560,7 +509,7 @@ public class AssignmentBO {
                 if (usedInvigilators.contains(ma1)) continue;
                 Set<String> roomsSeen1 = roomHistoryMap.get(ma1);
                 if (roomsSeen1 != null && roomsSeen1.contains(roomId)) continue;
-                if (hasBeenInRoomAssignments(assignmentsOut, ma1, roomId)) continue;
+                if (currentRoomUsage.contains(roomId + "|" + ma1)) continue;
 
                 for (int j = i + 1; j < n; j++) {
                     Invigilator inv2 = candidates.get(j);
@@ -570,17 +519,23 @@ public class AssignmentBO {
                     if (usedInvigilators.contains(ma2)) continue;
                     Set<String> roomsSeen2 = roomHistoryMap.get(ma2);
                     if (roomsSeen2 != null && roomsSeen2.contains(roomId)) continue;
-                    if (hasBeenInRoomAssignments(assignmentsOut, ma2, roomId)) continue;
+                    if (currentRoomUsage.contains(roomId + "|" + ma2)) continue;
 
                     Set<String> pairedWithA = pairedBefore.get(ma1);
                     if (pairedWithA != null && pairedWithA.contains(ma2)) continue;
-                    if (hasPairedInAssignments(assignmentsOut, ma1, ma2)) continue;
+                    if (currentPairs.contains(pairKey(ma1, ma2))) continue;
 
                     // Assign this pair and mark them as used (do not remove from list while iterating)
+                    if (inv1 == null || inv2 == null) {
+                        continue;
+                    }
                     Assignment asg = new Assignment(shift, roomId, ma1, ma2, inv1.getTt(), inv2.getTt());
                     assignmentsOut.add(asg);
                     usedInvigilators.add(ma1);
                     usedInvigilators.add(ma2);
+                    currentPairs.add(pairKey(ma1, ma2));
+                    currentRoomUsage.add(roomId + "|" + ma1);
+                    currentRoomUsage.add(roomId + "|" + ma2);
                     assigned = true;
                     break;
                 }
@@ -593,6 +548,16 @@ public class AssignmentBO {
         }
 
         return true;
+    }
+
+    private String pairKey(String left, String right) {
+        if (left == null || right == null) {
+            return String.valueOf(left) + "|" + String.valueOf(right);
+        }
+        if (left.compareTo(right) <= 0) {
+            return left + "|" + right;
+        }
+        return right + "|" + left;
     }
 
     private void validateInput(ScheduleInput input) throws IllegalArgumentException {
@@ -638,15 +603,4 @@ public class AssignmentBO {
         log(m);
     }
 
-    private String maskCode(String code) {
-        if (code == null || code.isEmpty()) {
-            return "null";
-        }
-
-        if (code.length() <= 3) {
-            return "***";
-        }
-
-        return "***" + code.substring(code.length() - 3);
-    }
 }
